@@ -4,16 +4,13 @@ import android.net.Uri
 import me.iacn.biliroaming.BiliBiliPackage
 import me.iacn.biliroaming.hook.BangumiSeasonHook.Companion.episodesDict
 import me.iacn.biliroaming.utils.*
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
-import java.util.*
 import java.util.zip.GZIPInputStream
 import java.util.zip.InflaterInputStream
-import kotlin.concurrent.thread
 
 
 class DanmakuHook(classLoader: ClassLoader) : BaseHook(classLoader) {
@@ -91,35 +88,38 @@ class DanmakuHook(classLoader: ClassLoader) : BaseHook(classLoader) {
                 "com.bapis.bilibili.community.service.dm.v1.DmSegMobileReq",
                 "com.bilibili.lib.moss.api.MossResponseHandler"
             ) { methodHookParam ->
-                thread {
-                    try {
-                        methodHookParam.thisObject.callMethod(
-                            "dmSegMobile",
-                            methodHookParam.args[0]
-                        )
-                    } catch (e: Throwable) {
-                        methodHookParam.args[1].callMethod(
-                            "onError",
-                            MossException.getStaticObjectField("UNSUPPORTED")
-                        )
-                        null
-                    }?.let { dmSegMobileReply ->
-                        methodHookParam.args[1].callMethod("onNext", dmSegMobileReply)
-                    }
-                    methodHookParam.result = null
-                }.run()
+//                thread {
+                Log.d(methodHookParam.args[0])
+                try {
+                    methodHookParam.thisObject.callMethod(
+                        "dmSegMobile",
+                        methodHookParam.args[0]
+                    )
+                } catch (e: Throwable) {
+                    methodHookParam.args[1].callMethod(
+                        "onError",
+                        MossException.getStaticObjectField("UNSUPPORTED")
+                    )
+                    null
+                }?.let { dmSegMobileReply ->
+                    methodHookParam.args[1].callMethod("onNext", dmSegMobileReply)
+                }
+                methodHookParam.result = null
+//                }.run()
             }
             it.hookAfterMethod(
                 "dmSegMobile",
                 "com.bapis.bilibili.community.service.dm.v1.DmSegMobileReq"
             ) { methodHookParam ->
-                Log.d("DanmakuHook: call " + methodHookParam.method.name + " aid:$aid,cid:$cid,pageIndex:$pageIndex,season:$seasonId,episodeId:$episodeId")
                 segmentIndex = methodHookParam.args[0].callMethod("getSegmentIndex") as Long
+
+                Log.d("DanmakuHook: call " + methodHookParam.method.name + " segment:${segmentIndex},aid:$aid,cid:$cid,pageIndex:$pageIndex,season:$seasonId,episodeId:$episodeId")
                 try {
                     addDanmaku(methodHookParam.result)
                 } catch (e: Throwable) {
                     println(e)
-                    methodHookParam.throwable = e
+                    methodHookParam.throwable =
+                        MossException.getStaticObjectField("UNSUPPORTED") as Throwable?
                 }
             }
         }
@@ -154,11 +154,11 @@ class DanmakuHook(classLoader: ClassLoader) : BaseHook(classLoader) {
                         methodHookParam.args[0]
                     )
 
-                    if (currentCommentIsEnd) {
-                        mainListReply?.callMethod("clearReplies")
-                    }
-                    currentCommentIsEnd = mainListReply?.callMethod("getCursor")
-                        ?.callMethod("getIsEnd") as Boolean
+                if (currentCommentIsEnd) {
+                    mainListReply?.callMethod("clearReplies")
+                }
+                currentCommentIsEnd = mainListReply?.callMethod("getCursor")
+                    ?.callMethod("getIsEnd") as Boolean
 
                 val aliasCommentReply = methodHookParam.args[0]?.let { mainListReq ->
                     mainListReq.callMethod(
@@ -422,6 +422,7 @@ class DanmakuHook(classLoader: ClassLoader) : BaseHook(classLoader) {
             }
 
             fun getResult(): ByteArray? {
+                this.start()
                 this.join()
                 return this.finalResult
             }
@@ -464,6 +465,7 @@ class DanmakuHook(classLoader: ClassLoader) : BaseHook(classLoader) {
 
     fun extendProtobufResponse(urlString: String, dmSegmentMobileReply: Any) {
         val result = RequestThread(urlString, connectTimeout = 4000)
+        result.start()
         result.join()
         serverResponseArgv = if (result.responseContentType.indexOf(";") != -1) {
             result.responseContentType.let { it.substring(it.indexOf(";") + 1).toJSONObject() }
